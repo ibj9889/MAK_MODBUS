@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net6.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>MAK_Modbus.Tests</AssemblyName>
+    <RootNamespace>MAK_Modbus.Tests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\MAK_Modbus\MAK_Modbus.csproj" />
+    <ProjectReference Include="..\..\simulator\MAK_Modbus.Simulator\MAK_Modbus.Simulator.csproj" />
+  </ItemGroup>
+</Project>

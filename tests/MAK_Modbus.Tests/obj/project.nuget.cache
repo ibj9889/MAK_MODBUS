@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "dgSpecHash": "5IQmTwyT15jIRkQ2/tUXGgNZuP9jlx7zVLSdRAkIAXNIG7Qr3xWhqfU/fa7xLNMz+m8wzwXzAsXewEz02GqCoQ==",
+  "success": true,
+  "projectFilePath": "/home/abc/MAK_modbus/tests/MAK_Modbus.Tests/MAK_Modbus.Tests.csproj",
+  "expectedPackageFiles": [
+    "/home/abc/.nuget/packages/runtime.linux-arm.runtime.native.system.io.ports/8.0.0/runtime.linux-arm.runtime.native.system.io.ports.8.0.0.nupkg.sha512",
+    "/home/abc/.nuget/packages/runtime.linux-arm64.runtime.native.system.io.ports/8.0.0/runtime.linux-arm64.runtime.native.system.io.ports.8.0.0.nupkg.sha512",
+    "/home/abc/.nuget/packages/runtime.linux-x64.runtime.native.system.io.ports/8.0.0/runtime.linux-x64.runtime.native.system.io.ports.8.0.0.nupkg.sha512",
+    "/home/abc/.nuget/packages/runtime.native.system.io.ports/8.0.0/runtime.native.system.io.ports.8.0.0.nupkg.sha512",
+    "/home/abc/.nuget/packages/runtime.osx-arm64.runtime.native.system.io.ports/8.0.0/runtime.osx-arm64.runtime.native.system.io.ports.8.0.0.nupkg.sha512",
+    "/home/abc/.nuget/packages/runtime.osx-x64.runtime.native.system.io.ports/8.0.0/runtime.osx-x64.runtime.native.system.io.ports.8.0.0.nupkg.sha512",
+    "/home/abc/.nuget/packages/system.io.ports/8.0.0/system.io.ports.8.0.0.nupkg.sha512"
+  ],
+  "logs": []
+}

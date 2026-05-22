@@ -1,0 +1,61 @@
+{
+  "format": 1,
+  "restore": {
+    "/home/abc/MAK_modbus/simulator/MAK_Modbus.Simulator/MAK_Modbus.Simulator.csproj": {}
+  },
+  "projects": {
+    "/home/abc/MAK_modbus/simulator/MAK_Modbus.Simulator/MAK_Modbus.Simulator.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "/home/abc/MAK_modbus/simulator/MAK_Modbus.Simulator/MAK_Modbus.Simulator.csproj",
+        "projectName": "MAK_Modbus.Simulator",
+        "projectPath": "/home/abc/MAK_modbus/simulator/MAK_Modbus.Simulator/MAK_Modbus.Simulator.csproj",
+        "packagesPath": "/home/abc/.nuget/packages/",
+        "outputPath": "/home/abc/MAK_modbus/simulator/MAK_Modbus.Simulator/obj/",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "/home/abc/.nuget/NuGet/NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net6.0"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net6.0": {
+            "targetAlias": "net6.0",
+            "projectReferences": {}
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        }
+      },
+      "frameworks": {
+        "net6.0": {
+          "targetAlias": "net6.0",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "/home/abc/.dotnet/sdk/6.0.428/RuntimeIdentifierGraph.json"
+        }
+      }
+    }
+  }
+}

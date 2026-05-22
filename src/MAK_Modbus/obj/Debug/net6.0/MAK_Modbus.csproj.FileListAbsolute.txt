@@ -1,0 +1,12 @@
+/home/abc/MAK_modbus/src/MAK_Modbus/bin/Debug/net6.0/MAK_Modbus.deps.json
+/home/abc/MAK_modbus/src/MAK_Modbus/bin/Debug/net6.0/MAK_Modbus.dll
+/home/abc/MAK_modbus/src/MAK_Modbus/bin/Debug/net6.0/MAK_Modbus.pdb
+/home/abc/MAK_modbus/src/MAK_Modbus/obj/Debug/net6.0/MAK_Modbus.csproj.AssemblyReference.cache
+/home/abc/MAK_modbus/src/MAK_Modbus/obj/Debug/net6.0/MAK_Modbus.GeneratedMSBuildEditorConfig.editorconfig
+/home/abc/MAK_modbus/src/MAK_Modbus/obj/Debug/net6.0/MAK_Modbus.AssemblyInfoInputs.cache
+/home/abc/MAK_modbus/src/MAK_Modbus/obj/Debug/net6.0/MAK_Modbus.AssemblyInfo.cs
+/home/abc/MAK_modbus/src/MAK_Modbus/obj/Debug/net6.0/MAK_Modbus.csproj.CoreCompileInputs.cache
+/home/abc/MAK_modbus/src/MAK_Modbus/obj/Debug/net6.0/MAK_Modbus.dll
+/home/abc/MAK_modbus/src/MAK_Modbus/obj/Debug/net6.0/refint/MAK_Modbus.dll
+/home/abc/MAK_modbus/src/MAK_Modbus/obj/Debug/net6.0/MAK_Modbus.pdb
+/home/abc/MAK_modbus/src/MAK_Modbus/obj/Debug/net6.0/ref/MAK_Modbus.dll

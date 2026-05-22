@@ -10,7 +10,11 @@
       "Bash(git --version)",
       "Bash(git -C /home/abc/MAK_modbus remote add origin https://github.com/ibj9889/MAK_MODBUS.git)",
       "Bash(git -C /home/abc/MAK_modbus remote -v)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(dotnet build *)",
+      "Bash(wget -q https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh)",
+      "Bash(chmod +x dotnet-install.sh)",
+      "Bash(bash dotnet-install.sh --channel 6.0 --install-dir /home/abc/.dotnet)"
     ]
   }
 }
