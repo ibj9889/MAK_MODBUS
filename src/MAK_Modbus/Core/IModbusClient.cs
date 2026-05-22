@@ -55,4 +55,12 @@ public interface IModbusClient : IDisposable
         ushort writeAddress, ushort[] writeValues,
         ushort readAddress, ushort readCount,
         CancellationToken cancellationToken = default);
+
+    // ─── Connection Health ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// 실제 소켓/포트 수준의 연결 상태를 즉시 확인합니다.
+    /// IsConnected보다 신뢰도 높음 (TCP는 Socket.Poll 사용).
+    /// </summary>
+    bool CheckConnectionHealth();
 }

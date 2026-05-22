@@ -600,6 +600,92 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
 ---
 
+### 연결 상태 감시 및 자동 재연결 (ModbusConnectionWatcher)
+
+연결이 끊어졌을 때 자동으로 감지하고 재연결을 시도합니다.
+
+```csharp
+var client = ModbusClientFactory.CreateTcp("192.168.1.100");
+await client.ConnectAsync();
+
+var watcher = new ModbusConnectionWatcher(client)
+{
+    // ── 연결 감시 설정 ──────────────────────────────
+    HeartbeatInterval  = TimeSpan.FromSeconds(2),   // 2초마다 실시간 연결 체크 (짧을수록 빠른 감지)
+
+    // ── 재연결 설정 ─────────────────────────────────
+    RetryInterval      = TimeSpan.FromSeconds(5),   // 5초 간격으로 재연결 시도
+    MaxRetryCount      = 10,                         // 최대 10회 시도 (-1이면 횟수 제한 없음)
+    TotalRetryTimeout  = TimeSpan.FromMinutes(2),    // 2분 넘게 실패하면 포기 (null이면 시간 제한 없음)
+};
+
+// MaxRetryCount와 TotalRetryTimeout 중 먼저 도달한 조건으로 중단됩니다.
+// 예: 5초 간격으로 10회 = 최대 50초, 하지만 2분 제한이 먼저 도달할 수 있음
+
+// 연결 끊김 감지
+watcher.ConnectionLost += (s, e) =>
+{
+    Dispatcher.Invoke(() => StatusLabel.Content = "연결 끊김 - 재연결 중...");
+};
+
+// 재연결 성공
+watcher.Reconnected += (s, e) =>
+{
+    Dispatcher.Invoke(() =>
+    {
+        StatusLabel.Content = "재연결 성공!";
+        // 필요하면 주기 읽기 재시작
+        periodicService.StartPeriodicRead(readConfig);
+    });
+};
+
+// 최대 재시도 초과 (MaxRetryCount 설정 시)
+watcher.ReconnectFailed += (s, e) =>
+{
+    Dispatcher.Invoke(() => StatusLabel.Content = "재연결 포기 - 수동 연결 필요");
+};
+
+// 재연결 시도 중 오류 알림
+watcher.RetryError += (s, e) =>
+{
+    Dispatcher.Invoke(() => Log($"재시도 오류: {e.Error.Message}"));
+};
+
+// 감시 시작 / 중지
+watcher.Start();
+watcher.Stop();
+```
+
+#### 재연결 시 커스텀 동작 지정
+
+TCP 재연결 시 클라이언트를 새로 만들어야 하는 경우:
+
+```csharp
+IModbusClient client = ModbusClientFactory.CreateTcp("192.168.1.100");
+await client.ConnectAsync();
+
+var watcher = new ModbusConnectionWatcher(client, reconnectAction: async () =>
+{
+    // 기존 연결 정리 후 재연결
+    client.Disconnect();
+    await Task.Delay(500);
+    await client.ConnectAsync();
+});
+watcher.Start();
+```
+
+#### 빠른 연결 상태 확인 (헬스 체크)
+
+```csharp
+// 실제 소켓 수준 체크 (IsConnected보다 신뢰도 높음)
+bool isAlive = client.CheckConnectionHealth();
+
+// IsConnected는 마지막 통신 시점 기준 → 끊겨도 true를 반환할 수 있음
+bool basic = client.IsConnected;
+```
+
+---
+
 ## Function Code 요약표
 
 | FC   | 이름                    | 방향      | 데이터 타입 | 메서드                              |

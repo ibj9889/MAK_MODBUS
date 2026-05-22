@@ -213,6 +213,22 @@ public sealed class ModbusTcpClient : IModbusClient
         }
     }
 
+    /// <summary>
+    /// Socket.Poll로 실제 TCP 연결 상태를 확인합니다.
+    /// Poll + Available == 0 이면 서버가 연결을 끊은 상태입니다.
+    /// </summary>
+    public bool CheckConnectionHealth()
+    {
+        if (_tcp == null || !_tcp.Connected) return false;
+        try
+        {
+            var socket = _tcp.Client;
+            return !(socket.Poll(1, System.Net.Sockets.SelectMode.SelectRead)
+                     && socket.Available == 0);
+        }
+        catch { return false; }
+    }
+
     private static byte Hi(ushort v) => (byte)(v >> 8);
     private static byte Lo(ushort v) => (byte)(v & 0xFF);
 

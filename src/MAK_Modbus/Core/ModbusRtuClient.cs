@@ -264,6 +264,9 @@ public sealed class ModbusRtuClient : IModbusClient
         return result;
     }
 
+    /// <summary>시리얼 포트가 열려있는지 확인합니다.</summary>
+    public bool CheckConnectionHealth() => _serialPort?.IsOpen ?? false;
+
     private static byte Hi(ushort v) => (byte)(v >> 8);
     private static byte Lo(ushort v) => (byte)(v & 0xFF);
 
