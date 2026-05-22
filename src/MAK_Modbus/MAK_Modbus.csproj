@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>MAK_Modbus</AssemblyName>
+    <RootNamespace>MAK_Modbus</RootNamespace>
+    <Version>1.0.0</Version>
+    <Authors>MAK</Authors>
+    <Description>Modbus TCP/RTU communication library for C# WPF applications</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.IO.Ports" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>
