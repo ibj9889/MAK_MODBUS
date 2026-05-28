@@ -1,6 +1,6 @@
 # MAK_Modbus
 
-C# WPF 프로젝트에서 바로 사용할 수 있는 **Modbus TCP / RTU** 통신 라이브러리입니다.
+C# WPF 프로젝트에서 바로 사용할 수 있는 **Modbus TCP / RTU** 통신 라이브러리 및 **BMS 배터리 팩 검사 엔진**입니다.
 
 - Modbus TCP (MBAP 헤더 기반)
 - Modbus RTU (시리얼 포트 + CRC16)
@@ -8,6 +8,8 @@ C# WPF 프로젝트에서 바로 사용할 수 있는 **Modbus TCP / RTU** 통�
 - 주기적 Read / Write (사용자 지정 인터벌)
 - Write 후 바로 Read 기능
 - 이벤트 기반 실시간 데이터 수신
+- **JSON 기반 동적 검사 엔진** (BmsTestEngine) — 주소·판정 기준을 코드 없이 JSON으로 정의
+- **셀 전압 통계 계산** (BmsCellCalculator) — Min/Max/StdDev/이탈 셀 탐색/SoC 추정
 
 ---
 
@@ -16,26 +18,114 @@ C# WPF 프로젝트에서 바로 사용할 수 있는 **Modbus TCP / RTU** 통�
 ```
 MAK_Modbus/
 ├── src/
-│   └── MAK_Modbus/                   ← 라이브러리 (참조 추가 대상)
+│   └── MAK_Modbus/                        ← 프로토콜 라이브러리 (참조 추가 대상)
 │       ├── Core/
-│       │   ├── IModbusClient.cs      ← 공통 인터페이스
-│       │   ├── ModbusTcpClient.cs    ← TCP 구현체
-│       │   ├── ModbusRtuClient.cs    ← RTU 구현체
-│       │   └── ModbusClientFactory.cs← 생성 헬퍼
+│       │   ├── IModbusClient.cs           ← 공통 인터페이스
+│       │   ├── ModbusTcpClient.cs         ← TCP 구현체
+│       │   ├── ModbusRtuClient.cs         ← RTU 구현체
+│       │   └── ModbusClientFactory.cs     ← 생성 헬퍼
 │       ├── Models/
 │       │   ├── ModbusFunctionCode.cs
 │       │   ├── ModbusException.cs
 │       │   ├── ModbusEventArgs.cs
 │       │   └── PeriodicConfig.cs
 │       ├── Services/
-│       │   └── ModbusPeriodicService.cs
+│       │   ├── ModbusPeriodicService.cs   ← 주기적 읽기/쓰기
+│       │   └── ModbusConnectionWatcher.cs ← 자동 재연결 감시
 │       └── Helpers/
 │           ├── CrcHelper.cs
-│           └── DataConverter.cs      ← float/int32 변환 유틸
+│           └── DataConverter.cs           ← Float/Int32/비트 변환 유틸
 ├── examples/
-│   └── WpfExample/                   ← WPF 예제 프로그램
+│   ├── WpfExample/                        ← WPF 기본 예제 프로그램
+│   └── BmsTestSystem/                     ← BMS 검사 엔진 예제
+│       ├── Models/
+│       │   ├── TestSequence.cs            ← TestStep, JudgmentCriteria 모델
+│       │   └── TestResult.cs              ← StepResult, StepJudgment 모델
+│       ├── BmsModbusClient.cs             ← IModbusClient 래퍼 (청크 분할)
+│       ├── BmsTestEngine.cs               ← JSON 시퀀스 실행 엔진
+│       ├── BmsCellCalculator.cs           ← 셀 전압 통계/분석 유틸
+│       └── config/sequence.json           ← 검사 시퀀스 정의 파일
+├── WPF_통합_가이드.txt                     ← WPF 연동 상세 가이드 (12개 파트)
 └── MAK_Modbus.sln
 ```
+
+---
+
+## BMS 검사 엔진 (BmsTestSystem)
+
+검사 주소·판정 기준을 코드에 하드코딩하지 않고 **JSON 파일로 정의**하여 동적으로 실행하는 검사 엔진입니다.
+
+### sequence.json 예시
+
+```json
+{
+  "SequenceName": "배터리 팩 기본 검사 시퀀스",
+  "Steps": [
+    { "StepIndex": 1, "StepName": "Relay OFF 제어",
+      "Action": "Write", "SlaveID": 1, "Address": "0x0000",
+      "WriteValue": 0, "DelayAfterMs": 200,
+      "Judgment": { "Type": "None" } },
+
+    { "StepIndex": 2, "StepName": "Relay OFF 피드백 확인",
+      "Action": "Read", "SlaveID": 1, "Address": "0x001F", "Length": 1,
+      "Judgment": { "Type": "Bitmask", "CheckMask": "0x0005", "ExpectedBits": "0x0000" } },
+
+    { "StepIndex": 3, "StepName": "HV 전압 계측",
+      "Action": "Read", "SlaveID": 1, "Address": "0x0231", "Length": 1,
+      "Coefficient": 0.1, "Unit": "V",
+      "Judgment": { "Type": "Range", "LimitMin": 200.0, "LimitMax": 450.0 } },
+
+    { "StepIndex": 4, "StepName": "Cell Voltage 전체 계측 (512셀)",
+      "Action": "Read", "SlaveID": 1, "Address": "0x1401", "Length": 512,
+      "Unit": "mV",
+      "Judgment": { "Type": "Range", "LimitMin": 2500.0, "LimitMax": 4200.0 } }
+  ]
+}
+```
+
+### WPF에서 검사 실행
+
+```csharp
+// BmsModbusClient: IModbusClient 래퍼 (청크 분할 읽기 내장)
+await using var client = BmsModbusClient.Create("192.168.1.100", 502,
+    errorLogger: msg => Dispatcher.Invoke(() => Log(msg)));
+await client.ConnectAsync();
+
+// IProgress<StepResult>: 스텝 완료 시마다 UI 스레드에서 자동 호출
+var progress = new Progress<StepResult>(result =>
+{
+    TestResults.Add(result);       // DataGrid 실시간 갱신
+});
+
+var engine  = new BmsTestEngine(client, logger: msg => Log(msg));
+var results = await engine.RunSequenceAsync("config/sequence.json", progress);
+
+bool allPass = results.All(r => r.IsPass);
+```
+
+### 판정 타입 요약
+
+| Type | 조건 | 용도 |
+|---|---|---|
+| `None` | 항상 Pass | 계측 전용, Write 후 확인 불필요 시 |
+| `Range` | `LimitMin <= 값 <= LimitMax` | 전압, 전류, 온도 범위 검사 |
+| `Bitmask` | `(reg & CheckMask) == ExpectedBits` | 릴레이 상태, 비트 플래그 확인 |
+
+### 셀 전압 통계 계산 (BmsCellCalculator)
+
+```csharp
+// 512셀 읽기 + 통계 (청크 분할 자동)
+double[]? voltages = await BmsCellCalculator.ReadAllCellVoltagesAsync(
+    client, slaveId: 1, startAddress: 0x1401, cellCount: 512);
+
+var stats = BmsCellCalculator.CalcStats(voltages, limitMin: 2500, limitMax: 4200);
+// stats.Min, Max, Average, Range, StdDev, FailCount, AllPass
+
+// 이탈 셀 탐색 (평균 대비 50mV 이상 편차)
+var outliers = BmsCellCalculator.FindOutliers(voltages, threshold: 50.0);
+```
+
+> **WPF 전체 통합 방법**은 저장소 루트의 `WPF_통합_가이드.txt`를 참고하세요. (12개 파트, 연결부터 트러블슈팅까지)
 
 ---
 
