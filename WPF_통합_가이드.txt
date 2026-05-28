@@ -1,0 +1,975 @@
+================================================================================
+  MAK_Modbus + BmsTestSystem  WPF 프로젝트 통합 가이드
+  작성일: 2026-05-28
+================================================================================
+
+이 문서는 기존 WPF 프로젝트에서 MAK_Modbus 프로토콜 라이브러리와
+BmsTestSystem(JSON 기반 동적 검사 엔진)을 사용하는 방법을 처음부터 끝까지
+단계별로 설명합니다.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 목차
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ PART 1. 전체 구조 파악
+ PART 2. WPF 프로젝트에 라이브러리 추가하기 (3가지 방법)
+ PART 3. BmsTestSystem 파일 복사하기
+ PART 4. 기본 연결 / 해제 패턴
+ PART 5. 단발성 읽기 / 쓰기
+ PART 6. JSON 시퀀스 실행 (BmsTestEngine)
+ PART 7. 자동 재연결 (ModbusConnectionWatcher)
+ PART 8. 주기적 폴링 (ModbusPeriodicService)
+ PART 9. DataConverter 사용법 (32비트, Float 변환)
+ PART 10. 셀 전압 계산 메서드 추가 방법
+ PART 11. WPF 실전 패턴 정리 (스레드 안전, MVVM, 에러 처리)
+ PART 12. 자주 발생하는 문제와 해결법
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ PART 1. 전체 구조 파악
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[MAK_Modbus 라이브러리 (src/MAK_Modbus/)]
+ ┌─ Core/
+ │   ├─ IModbusClient.cs         → 모든 통신의 인터페이스 (이것만 보면 됨)
+ │   ├─ ModbusTcpClient.cs       → TCP 구현체 (MBAP + FC03/06 등 내장)
+ │   ├─ ModbusRtuClient.cs       → RTU/Serial 구현체
+ │   └─ ModbusClientFactory.cs  → 생성 헬퍼
+ ├─ Services/
+ │   ├─ ModbusConnectionWatcher.cs  → 자동 재연결 감시
+ │   └─ ModbusPeriodicService.cs   → 주기적 읽기/쓰기
+ ├─ Helpers/
+ │   └─ DataConverter.cs            → Float/Int32/비트 변환 유틸
+ └─ Models/
+     ├─ ModbusEventArgs.cs          → 이벤트 데이터 클래스들
+     ├─ ModbusFunctionCode.cs       → FC 열거형
+     └─ PeriodicConfig.cs           → 주기 작업 설정 클래스
+
+[BmsTestSystem (examples/BmsTestSystem/)]
+ ┌─ Models/
+ │   ├─ TestSequence.cs    → TestSequence, TestStep, JudgmentCriteria
+ │   └─ TestResult.cs      → StepResult, StepJudgment
+ ├─ BmsModbusClient.cs     → IModbusClient 래퍼 (청크 분할, 에러 처리)
+ ├─ BmsTestEngine.cs       → JSON 파싱 + 검사 실행 엔진
+ └─ config/sequence.json   → 검사 시퀀스 정의 파일
+
+[WPF에서 사용하려면 필요한 것]
+ - MAK_Modbus.dll 또는 프로젝트 참조  →  통신 프로토콜
+ - BmsModbusClient.cs                 →  래퍼 (복사)
+ - BmsTestEngine.cs                   →  엔진 (복사)
+ - Models/TestSequence.cs             →  모델 (복사)
+ - Models/TestResult.cs               →  모델 (복사)
+ - config/sequence.json               →  검사 정의 (복사)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ PART 2. WPF 프로젝트에 라이브러리 추가하기
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ 방법 A ] 소스 프로젝트 참조 (권장 — 같은 솔루션 사용 시)
+───────────────────────────────────────────────────────────
+
+1. Visual Studio에서 내 WPF 프로젝트의 .csproj를 열거나 우클릭 → 편집
+2. 아래 내용을 <ItemGroup>에 추가:
+
+    <ItemGroup>
+      <ProjectReference Include="..\MAK_Modbus\MAK_Modbus.csproj" />
+    </ItemGroup>
+
+   ※ 경로는 실제 MAK_Modbus.csproj 위치에 맞게 조정하세요.
+      예: 솔루션 루트 기준 ../src/MAK_Modbus/MAK_Modbus.csproj
+
+3. 솔루션에 MAK_Modbus 프로젝트가 없으면 추가:
+   솔루션 우클릭 → 추가 → 기존 프로젝트 → MAK_Modbus.csproj 선택
+
+4. WPF .csproj의 TargetFramework 확인:
+   반드시 net6.0-windows (또는 net7.0-windows, net8.0-windows) 이어야 합니다.
+
+   <PropertyGroup>
+     <TargetFramework>net6.0-windows</TargetFramework>
+     <UseWPF>true</UseWPF>
+   </PropertyGroup>
+
+
+[ 방법 B ] 빌드된 DLL 참조 (솔루션 분리 시)
+──────────────────────────────────────────────
+
+1. MAK_Modbus 프로젝트를 빌드하여 MAK_Modbus.dll 생성
+   (기본 경로: src/MAK_Modbus/bin/Debug/net6.0/MAK_Modbus.dll)
+
+2. WPF 프로젝트 폴더에 libs/ 폴더 생성 후 DLL 복사
+
+3. WPF .csproj에 추가:
+
+    <ItemGroup>
+      <Reference Include="MAK_Modbus">
+        <HintPath>libs\MAK_Modbus.dll</HintPath>
+      </Reference>
+    </ItemGroup>
+
+
+[ 방법 C ] NuGet 패키지 (추후 패키징 시)
+──────────────────────────────────────────
+   현재는 소스 참조 또는 DLL 참조를 사용하세요.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ PART 3. BmsTestSystem 파일 복사하기
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+아래 5개 파일을 WPF 프로젝트 폴더에 그대로 복사합니다.
+
+  복사 원본 (examples/BmsTestSystem/)     → 복사 대상 (내 WPF 프로젝트/)
+  ───────────────────────────────────────────────────────────────────────
+  Models/TestSequence.cs                  → Models/TestSequence.cs
+  Models/TestResult.cs                    → Models/TestResult.cs
+  BmsModbusClient.cs                      → BmsModbusClient.cs
+  BmsTestEngine.cs                        → BmsTestEngine.cs
+  config/sequence.json                    → config/sequence.json
+
+복사 후 namespace 수정:
+  각 .cs 파일 맨 위 namespace를 내 프로젝트에 맞게 바꿉니다.
+  예: namespace BmsTestSystem  →  namespace MyApp.Bms
+
+sequence.json을 빌드 출력에 포함시키려면 WPF .csproj에 추가:
+
+  <ItemGroup>
+    <None Update="config\sequence.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+Visual Studio에서도 가능:
+  솔루션 탐색기에서 sequence.json 우클릭 → 속성
+  → 출력 디렉터리에 복사: 새 버전이면 복사
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ PART 4. 기본 연결 / 해제 패턴
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+MainWindow.xaml.cs (또는 ViewModel)에 아래 필드를 추가합니다.
+
+─── using 추가 ───────────────────────────────────────────────────────────────
+
+  using MAK_Modbus.Core;
+  using MAK_Modbus.Models;
+  using MAK_Modbus.Services;
+  using MAK_Modbus.Helpers;
+  using MyApp.Bms;          // BmsModbusClient, BmsTestEngine 네임스페이스
+
+─── 필드 선언 ────────────────────────────────────────────────────────────────
+
+  private IModbusClient?          _modbusClient;
+  private ModbusConnectionWatcher? _watcher;
+  private CancellationTokenSource? _cts;
+
+─── TCP 연결 ─────────────────────────────────────────────────────────────────
+
+  private async void BtnConnect_Click(object sender, RoutedEventArgs e)
+  {
+      try
+      {
+          BtnConnect.IsEnabled = false;
+
+          // TCP 클라이언트 생성 (IP, Port, 타임아웃ms)
+          _modbusClient = ModbusClientFactory.CreateTcp("192.168.1.100", 502, 3000);
+
+          // 연결 상태 변경 이벤트 등록
+          _modbusClient.ConnectionChanged += OnConnectionChanged;
+
+          // 연결 (비동기)
+          await _modbusClient.ConnectAsync();
+
+          Log("BMS 연결 성공");
+          SetUiConnected(true);
+      }
+      catch (Exception ex)
+      {
+          Log($"연결 실패: {ex.Message}");
+          BtnConnect.IsEnabled = true;
+      }
+  }
+
+─── 연결 해제 ────────────────────────────────────────────────────────────────
+
+  private void BtnDisconnect_Click(object sender, RoutedEventArgs e)
+  {
+      _watcher?.Stop();
+      _watcher?.Dispose();
+      _modbusClient?.Disconnect();
+      _modbusClient?.Dispose();
+      _watcher = null;
+      _modbusClient = null;
+      SetUiConnected(false);
+      Log("연결 해제");
+  }
+
+─── 연결 상태 이벤트 핸들러 ─────────────────────────────────────────────────
+
+  private void OnConnectionChanged(object? sender, ModbusConnectionEventArgs e)
+  {
+      // 이벤트는 백그라운드에서 발생할 수 있으므로 Dispatcher.Invoke 필수
+      Dispatcher.Invoke(() =>
+      {
+          Log($"[연결상태] {e.Message}");
+          SetUiConnected(e.IsConnected);
+      });
+  }
+
+─── 창 닫기 시 정리 ─────────────────────────────────────────────────────────
+
+  private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+  {
+      _cts?.Cancel();
+      _watcher?.Stop();
+      _modbusClient?.Disconnect();
+      _modbusClient?.Dispose();
+  }
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ PART 5. 단발성 읽기 / 쓰기
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+IModbusClient를 직접 사용하는 패턴입니다.
+BmsModbusClient를 거치지 않고 라이브러리를 직접 호출할 수 있습니다.
+
+─── Holding Register 읽기 (FC03) ────────────────────────────────────────────
+
+  private async void BtnReadHv_Click(object sender, RoutedEventArgs e)
+  {
+      if (_modbusClient == null) return;
+
+      try
+      {
+          byte   slaveId = 1;
+          ushort address = 0x0231;   // HV 전압 주소
+          ushort count   = 1;        // 레지스터 1개
+
+          ushort[] raw = await _modbusClient.ReadHoldingRegistersAsync(slaveId, address, count);
+
+          double hv = raw[0] * 0.1;   // 계수 0.1 적용
+          LblHv.Content = $"{hv:F1} V";
+          Log($"HV 전압: {hv:F1} V  (raw={raw[0]})");
+      }
+      catch (ModbusException ex)
+      {
+          Log($"Modbus 예외 (FC={ex.FunctionCode}): {ex.Message}");
+      }
+      catch (Exception ex)
+      {
+          Log($"읽기 오류: {ex.Message}");
+      }
+  }
+
+─── 단일 Register 쓰기 (FC06) ───────────────────────────────────────────────
+
+  private async void BtnRelayOff_Click(object sender, RoutedEventArgs e)
+  {
+      if (_modbusClient == null) return;
+
+      try
+      {
+          await _modbusClient.WriteSingleRegisterAsync(
+              deviceId: 1,
+              address:  0x0000,   // Relay 제어 주소
+              value:    0x0000);  // OFF 명령
+
+          Log("Relay OFF 명령 전송 완료");
+          await Task.Delay(200);  // 릴레이 동작 대기
+      }
+      catch (Exception ex)
+      {
+          Log($"쓰기 오류: {ex.Message}");
+      }
+  }
+
+─── 비트 상태 확인 (DataConverter 활용) ─────────────────────────────────────
+
+  private async void BtnCheckRelay_Click(object sender, RoutedEventArgs e)
+  {
+      if (_modbusClient == null) return;
+
+      ushort[] raw = await _modbusClient.ReadHoldingRegistersAsync(1, 0x001F, 1);
+
+      bool bit0 = DataConverter.GetBit(raw[0], 0);  // Bit 0: Relay A
+      bool bit2 = DataConverter.GetBit(raw[0], 2);  // Bit 2: Relay B
+
+      Log($"Relay 피드백: raw=0x{raw[0]:X4}  Bit0={bit0}  Bit2={bit2}");
+
+      if (!bit0 && !bit2)
+          Log("→ Relay 모두 OFF 확인 (PASS)");
+      else
+          Log("→ Relay가 아직 ON 상태 (FAIL)");
+  }
+
+─── 32비트 Float 읽기 (연속 2개 레지스터) ──────────────────────────────────
+
+  private async void BtnReadFloat_Click(object sender, RoutedEventArgs e)
+  {
+      if (_modbusClient == null) return;
+
+      ushort[] raw = await _modbusClient.ReadHoldingRegistersAsync(1, 0x0300, 2);
+
+      // DataConverter 사용 (라이브러리 내장 헬퍼)
+      float value = DataConverter.ToFloat(raw[0], raw[1]);  // High Word, Low Word
+
+      Log($"Float 값: {value:F4}");
+  }
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ PART 6. JSON 시퀀스 실행 (BmsTestEngine)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BmsModbusClient와 BmsTestEngine을 WPF에서 사용하는 전체 패턴입니다.
+
+─── WPF 필드 선언 ────────────────────────────────────────────────────────────
+
+  // TestResults는 DataGrid에 바인딩하여 실시간 표시
+  public ObservableCollection<StepResult> TestResults { get; } = new();
+
+  private BmsModbusClient? _bmsClient;
+  private CancellationTokenSource? _testCts;
+
+─── BmsModbusClient 생성 (연결 버튼) ────────────────────────────────────────
+
+  // 로거: UI 스레드에서 호출 보장 (async void 핸들러 컨텍스트)
+  void AppendLog(string msg) => TxtLog.AppendText(msg + "\n");
+
+  // 오류 로거: 백그라운드에서 발생 가능 → Dispatcher.Invoke 필요
+  void AppendError(string msg) =>
+      Dispatcher.Invoke(() => TxtLog.AppendText("[ERROR] " + msg + "\n"));
+
+  _bmsClient = BmsModbusClient.Create(
+      ip:          "192.168.1.100",
+      port:        502,
+      timeoutMs:   3000,
+      errorLogger: AppendError);   // ← WPF 오류 표시 연결
+
+  await _bmsClient.ConnectAsync();
+
+─── 검사 시작 버튼 ───────────────────────────────────────────────────────────
+
+  private async void BtnStartTest_Click(object sender, RoutedEventArgs e)
+  {
+      if (_bmsClient == null) return;
+
+      TestResults.Clear();
+      BtnStartTest.IsEnabled = false;
+      BtnStopTest.IsEnabled  = true;
+
+      _testCts = new CancellationTokenSource();
+
+      // 로거 (UI 스레드 컨텍스트에서 안전)
+      void AppendLog(string msg) => TxtLog.AppendText(msg + "\n");
+
+      // IProgress<StepResult>: SynchronizationContext 자동 캡처
+      // → Dispatcher.Invoke 없이 UI 업데이트 가능
+      var progress = new Progress<StepResult>(result =>
+      {
+          TestResults.Add(result);
+          DgResults.ScrollIntoView(result);
+
+          // 판정 결과에 따라 즉시 색상 변경
+          if (result.Judgment == StepJudgment.Fail)
+              TxtStatus.Text = $"FAIL: {result.StepName}";
+      });
+
+      var engine = new BmsTestEngine(_bmsClient, logger: AppendLog);
+
+      try
+      {
+          var results = await engine.RunSequenceAsync(
+              jsonFilePath: "config/sequence.json",
+              progress:     progress,
+              ct:           _testCts.Token);
+
+          bool allPass = results.All(r => r.IsPass);
+          ShowOverallResult(allPass);
+      }
+      catch (OperationCanceledException)
+      {
+          AppendLog("검사가 중단되었습니다.");
+      }
+      finally
+      {
+          BtnStartTest.IsEnabled = true;
+          BtnStopTest.IsEnabled  = false;
+      }
+  }
+
+─── 검사 중단 버튼 ───────────────────────────────────────────────────────────
+
+  private void BtnStopTest_Click(object sender, RoutedEventArgs e)
+      => _testCts?.Cancel();
+
+─── DataGrid XAML 바인딩 예시 ───────────────────────────────────────────────
+
+  <DataGrid x:Name="DgResults"
+            ItemsSource="{Binding TestResults}"
+            AutoGenerateColumns="False"
+            IsReadOnly="True">
+    <DataGrid.Columns>
+      <DataGridTextColumn Header="No"      Binding="{Binding StepIndex}" Width="40"/>
+      <DataGridTextColumn Header="스텝명"  Binding="{Binding StepName}"  Width="200"/>
+      <DataGridTextColumn Header="판정"    Binding="{Binding Judgment}"  Width="60"/>
+      <DataGridTextColumn Header="결과"    Binding="{Binding Message}"   Width="*"/>
+      <DataGridTextColumn Header="시각"
+          Binding="{Binding Timestamp, StringFormat=HH:mm:ss.fff}" Width="100"/>
+    </DataGrid.Columns>
+  </DataGrid>
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ PART 7. 자동 재연결 (ModbusConnectionWatcher)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  using MAK_Modbus.Services;
+
+  // 연결 성공 후 감시 시작
+  _watcher = new ModbusConnectionWatcher(_modbusClient);
+  _watcher.HeartbeatInterval = TimeSpan.FromSeconds(2);  // 체크 주기
+  _watcher.RetryInterval     = TimeSpan.FromSeconds(5);  // 재연결 시도 간격
+  _watcher.MaxRetryCount     = 10;                        // 최대 10회 시도
+
+  _watcher.ConnectionLost  += (s, e) =>
+      Dispatcher.Invoke(() => Log($"[연결끊김] {e.Message}"));
+
+  _watcher.Reconnected     += (s, e) =>
+      Dispatcher.Invoke(() => Log($"[재연결] {e.Message}"));
+
+  _watcher.ReconnectFailed += (s, e) =>
+      Dispatcher.Invoke(() =>
+      {
+          Log($"[재연결 포기] {e.Message}");
+          SetUiConnected(false);
+      });
+
+  _watcher.RetryError      += (s, e) =>
+      Dispatcher.Invoke(() => Log($"[재연결 시도 실패] {e.Error.Message}"));
+
+  _watcher.Start();  // 감시 시작
+
+  // 해제 시
+  _watcher.Stop();
+  _watcher.Dispose();
+
+주의: 재연결 감시와 BmsTestEngine을 동시에 사용할 때
+  → BmsTestEngine 실행 중 연결이 끊기면 Error로 시퀀스가 중단됩니다.
+  → ConnectionLost 이벤트에서 검사를 자동으로 재시작할지 결정하세요.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ PART 8. 주기적 폴링 (ModbusPeriodicService)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+검사 이후 HV 전압이나 온도를 실시간으로 계속 보여주고 싶을 때 사용합니다.
+
+  using MAK_Modbus.Services;
+  using MAK_Modbus.Models;
+
+  private ModbusPeriodicService? _periodicService;
+
+  // 서비스 생성 (연결 후)
+  _periodicService = new ModbusPeriodicService(_modbusClient);
+  _periodicService.DataReceived  += OnDataReceived;
+  _periodicService.ErrorOccurred += OnPeriodicError;
+
+  // HV 전압 500ms 주기 폴링 시작
+  _periodicService.StartPeriodicRead(new PeriodicReadConfig
+  {
+      TaskId       = "hv-voltage",
+      DeviceId     = 1,
+      StartAddress = 0x0231,
+      Count        = 1,
+      FunctionCode = ModbusFunctionCode.ReadHoldingRegisters,
+      Interval     = TimeSpan.FromMilliseconds(500)
+  });
+
+  // 셀 전압 전체 1초 주기 폴링 시작
+  _periodicService.StartPeriodicRead(new PeriodicReadConfig
+  {
+      TaskId       = "cell-voltage",
+      DeviceId     = 1,
+      StartAddress = 0x1401,
+      Count        = 125,   // 단일 요청 최대 125개
+                            // 512개 전체가 필요하면 BmsModbusClient 사용 권장
+      FunctionCode = ModbusFunctionCode.ReadHoldingRegisters,
+      Interval     = TimeSpan.FromSeconds(1)
+  });
+
+  // 데이터 수신 이벤트 핸들러
+  private void OnDataReceived(object? sender, ModbusReadEventArgs e)
+  {
+      Dispatcher.Invoke(() =>
+      {
+          if (e.TaskId == "hv-voltage" && e.RegisterValues != null)
+          {
+              double hv = e.RegisterValues[0] * 0.1;
+              LblHv.Content = $"{hv:F1} V";
+          }
+          else if (e.TaskId == "cell-voltage" && e.RegisterValues != null)
+          {
+              // 셀 전압 처리 (PART 10 참조)
+              var stats = BmsCellCalculator.CalcStats(e.RegisterValues, coefficient: 1.0);
+              LblCellMin.Content = $"{stats.Min:F0} mV";
+              LblCellMax.Content = $"{stats.Max:F0} mV";
+          }
+      });
+  }
+
+  private void OnPeriodicError(object? sender, ModbusErrorEventArgs e)
+      => Dispatcher.Invoke(() => Log($"폴링 오류 Task={e.TaskId}: {e.Error.Message}"));
+
+  // 중지
+  _periodicService.StopTask("hv-voltage");
+  _periodicService.StopAll();
+  _periodicService.Dispose();
+
+주의: ModbusPeriodicService는 125개 초과 청크 분할을 지원하지 않습니다.
+  512개 셀 전압은 반드시 BmsModbusClient.ReadRegistersAsync를 사용하세요.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ PART 9. DataConverter 사용법
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  using MAK_Modbus.Helpers;
+
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │ 메서드                         │ 용도                                    │
+  ├──────────────────────────────────────────────────────────────────────────┤
+  │ DataConverter.ToFloat(h, l)    │ 레지스터 2개 → IEEE-754 Float32        │
+  │ DataConverter.FromFloat(f)     │ Float → 레지스터 2개 (쓰기용)          │
+  │ DataConverter.ToInt32(h, l)    │ 레지스터 2개 → Int32                  │
+  │ DataConverter.ToUInt32(h, l)   │ 레지스터 2개 → UInt32                 │
+  │ DataConverter.FromInt32(i)     │ Int32 → 레지스터 2개 (쓰기용)         │
+  │ DataConverter.ToAsciiString(r) │ 레지스터 배열 → ASCII 문자열          │
+  │ DataConverter.GetBit(v, i)     │ ushort의 i번째 비트 읽기              │
+  │ DataConverter.SetBit(v, i, s)  │ ushort의 i번째 비트 설정/해제         │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+사용 예시:
+
+  // 온도 센서 (Float32, 2개 레지스터)
+  ushort[] raw = await _modbusClient.ReadHoldingRegistersAsync(1, 0x0400, 2);
+  float temp = DataConverter.ToFloat(raw[0], raw[1]);
+  Log($"온도: {temp:F2} °C");
+
+  // 비트 개별 확인
+  ushort status = raw[0];
+  bool relayA = DataConverter.GetBit(status, 0);  // 0번 비트
+  bool fault  = DataConverter.GetBit(status, 7);  // 7번 비트
+
+  // 비트 설정 후 쓰기
+  ushort cmd = 0x0000;
+  cmd = DataConverter.SetBit(cmd, 0, true);   // Bit0 = 1 (릴레이 ON)
+  await _modbusClient.WriteSingleRegisterAsync(1, 0x0010, cmd);
+
+  // 장치 모델명 (ASCII 문자열 레지스터)
+  ushort[] modelRaw = await _modbusClient.ReadHoldingRegistersAsync(1, 0x0900, 8);
+  string model = DataConverter.ToAsciiString(modelRaw);
+  Log($"모델: {model}");
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ PART 10. 셀 전압 계산 메서드 추가 방법
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+아래 클래스를 WPF 프로젝트에 새 파일로 추가하면 됩니다.
+파일명: BmsCellCalculator.cs
+
+─────────────────────────────────────────────────────────────────────────────
+[파일: BmsCellCalculator.cs — 전체 복사 가능]
+─────────────────────────────────────────────────────────────────────────────
+
+  using MAK_Modbus.Core;
+
+  namespace MyApp.Bms;
+
+  /// <summary>셀 전압 통계 결과</summary>
+  public sealed class CellVoltageStats
+  {
+      public int    Count     { get; init; }
+      public double Min       { get; init; }
+      public double Max       { get; init; }
+      public double Average   { get; init; }
+      public double Range     { get; init; }     // Max - Min
+      public double StdDev    { get; init; }     // 표준편차
+      public int    MinIndex  { get; init; }     // 최소값 셀 인덱스
+      public int    MaxIndex  { get; init; }     // 최대값 셀 인덱스
+      public int    FailCount { get; init; }     // 범위 이탈 셀 수
+      public bool   AllPass   { get; init; }
+  }
+
+  public static class BmsCellCalculator
+  {
+      // ── 원시 읽기 (BmsModbusClient를 직접 받아서 처리) ──────────────────────
+
+      /// <summary>
+      /// 512셀 전압을 읽어 double[] 배열로 반환합니다.
+      /// 512 > 125이므로 BmsModbusClient의 청크 분할 기능이 자동 사용됩니다.
+      /// </summary>
+      public static async Task<double[]?> ReadAllCellVoltagesAsync(
+          BmsModbusClient client,
+          byte slaveId        = 1,
+          ushort startAddress = 0x1401,
+          int cellCount       = 512,
+          double coefficient  = 1.0,
+          CancellationToken ct = default)
+      {
+          var (ok, raw) = await client.ReadRegistersAsync(slaveId, startAddress, cellCount, ct);
+          if (!ok) return null;
+
+          return Array.ConvertAll(raw, r => r * coefficient);
+      }
+
+      // ── 통계 계산 ─────────────────────────────────────────────────────────────
+
+      /// <summary>
+      /// 셀 전압 배열의 통계를 계산합니다.
+      /// ushort 배열(raw)을 받아 coefficient를 적용한 뒤 통계를 계산합니다.
+      /// </summary>
+      public static CellVoltageStats CalcStats(
+          ushort[] rawValues,
+          double coefficient = 1.0,
+          double limitMin    = 2500.0,
+          double limitMax    = 4200.0)
+      {
+          double[] values = Array.ConvertAll(rawValues, r => r * coefficient);
+          return CalcStats(values, limitMin, limitMax);
+      }
+
+      /// <summary>
+      /// double 배열(이미 계수 적용된 값)로 통계를 계산합니다.
+      /// </summary>
+      public static CellVoltageStats CalcStats(
+          double[] values,
+          double limitMin = 2500.0,
+          double limitMax = 4200.0)
+      {
+          if (values.Length == 0)
+              return new CellVoltageStats();
+
+          double min    = values[0];
+          double max    = values[0];
+          int    minIdx = 0;
+          int    maxIdx = 0;
+          double sum    = 0;
+          int    fail   = 0;
+
+          for (int i = 0; i < values.Length; i++)
+          {
+              double v = values[i];
+              sum += v;
+              if (v < min) { min = v; minIdx = i; }
+              if (v > max) { max = v; maxIdx = i; }
+              if (v < limitMin || v > limitMax) fail++;
+          }
+
+          double avg = sum / values.Length;
+
+          // 표준편차
+          double variance = 0;
+          foreach (var v in values)
+              variance += (v - avg) * (v - avg);
+          double stdDev = Math.Sqrt(variance / values.Length);
+
+          return new CellVoltageStats
+          {
+              Count     = values.Length,
+              Min       = min,
+              Max       = max,
+              Average   = avg,
+              Range     = max - min,
+              StdDev    = stdDev,
+              MinIndex  = minIdx,
+              MaxIndex  = maxIdx,
+              FailCount = fail,
+              AllPass   = fail == 0
+          };
+      }
+
+      // ── 셀 밸런싱 편차 분석 ──────────────────────────────────────────────────
+
+      /// <summary>
+      /// 평균 대비 ±threshold mV 이상 이탈한 셀 인덱스 목록을 반환합니다.
+      /// </summary>
+      public static List<(int Index, double Voltage, double Deviation)> FindOutliers(
+          double[] values,
+          double threshold = 50.0)
+      {
+          if (values.Length == 0) return new();
+
+          double avg = values.Average();
+          var result = new List<(int, double, double)>();
+
+          for (int i = 0; i < values.Length; i++)
+          {
+              double dev = values[i] - avg;
+              if (Math.Abs(dev) > threshold)
+                  result.Add((i, values[i], dev));
+          }
+
+          result.Sort((a, b) => Math.Abs(b.Deviation).CompareTo(Math.Abs(a.Deviation)));
+          return result;
+      }
+
+      // ── SoC 추정 (간단 선형 보간) ────────────────────────────────────────────
+
+      /// <summary>
+      /// 셀 전압으로 SoC(%)를 추정합니다 (단순 선형 보간 모델).
+      /// 정확한 SoC는 BMS에서 직접 읽어야 합니다.
+      /// </summary>
+      public static double EstimateSoc(double cellVoltage_mV,
+          double vMin_mV = 2800.0, double vMax_mV = 4200.0)
+      {
+          double soc = (cellVoltage_mV - vMin_mV) / (vMax_mV - vMin_mV) * 100.0;
+          return Math.Clamp(soc, 0.0, 100.0);
+      }
+
+      // ── Pass/Fail 판정 ────────────────────────────────────────────────────────
+
+      /// <summary>전체 셀에 대해 Pass/Fail 배열을 반환합니다.</summary>
+      public static bool[] EvaluateAll(double[] values,
+          double limitMin = 2500.0, double limitMax = 4200.0)
+      {
+          var result = new bool[values.Length];
+          for (int i = 0; i < values.Length; i++)
+              result[i] = values[i] >= limitMin && values[i] <= limitMax;
+          return result;
+      }
+  }
+
+─────────────────────────────────────────────────────────────────────────────
+
+WPF에서 사용하는 방법:
+
+  // 512셀 읽기 + 통계
+  private async void BtnReadCells_Click(object sender, RoutedEventArgs e)
+  {
+      if (_bmsClient == null) return;
+
+      double[]? voltages = await BmsCellCalculator.ReadAllCellVoltagesAsync(
+          _bmsClient, slaveId: 1, startAddress: 0x1401,
+          cellCount: 512, coefficient: 1.0);
+
+      if (voltages == null) { Log("셀 전압 읽기 실패"); return; }
+
+      // 통계 계산
+      var stats = BmsCellCalculator.CalcStats(voltages, limitMin: 2500, limitMax: 4200);
+
+      LblCellMin.Content = $"{stats.Min:F0} mV  (Cell #{stats.MinIndex + 1})";
+      LblCellMax.Content = $"{stats.Max:F0} mV  (Cell #{stats.MaxIndex + 1})";
+      LblCellAvg.Content = $"{stats.Average:F1} mV";
+      LblCellRange.Content = $"{stats.Range:F0} mV";
+      LblCellStdDev.Content = $"{stats.StdDev:F2} mV";
+      LblCellFail.Content = $"{stats.FailCount}개 이탈";
+      LblCellResult.Content = stats.AllPass ? "PASS" : "FAIL";
+
+      // 이탈 셀 출력 (편차 50mV 이상)
+      var outliers = BmsCellCalculator.FindOutliers(voltages, threshold: 50.0);
+      foreach (var (idx, volt, dev) in outliers)
+          Log($"이탈 셀: #{idx + 1}  {volt:F0} mV  (편차 {dev:+0.0;-0.0} mV)");
+  }
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ PART 11. WPF 실전 패턴 정리
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ UI 스레드 안전성 규칙 ]
+──────────────────────────────────────────────────────────────────────────────
+
+ 상황                              처리 방법
+ ─────────────────────────────────────────────────────────────────────────────
+ async void 버튼 핸들러 안에서     Dispatcher 불필요. 그냥 쓰면 됩니다.
+ await 이후 코드                   UI 스레드에서 재개됨 (SynchronizationContext)
+ IProgress<T>.Report() 콜백       UI 스레드에서 호출됨 (자동 마샬링)
+ 이벤트 핸들러 (ConnectionChanged)  Dispatcher.Invoke(() => ...) 필수
+ 이벤트 핸들러 (DataReceived)      Dispatcher.Invoke(() => ...) 필수
+ Task.Run 내부 코드                Dispatcher.Invoke(() => ...) 필수
+
+─────────────────────────────────────────────────────────────────────────────
+ ※ 핵심 규칙: 백그라운드 스레드에서 직접 호출된 이벤트는 항상 Dispatcher 필요
+              async void 핸들러 안에서는 Dispatcher 없이 UI 접근 가능
+─────────────────────────────────────────────────────────────────────────────
+
+[ async void 주의사항 ]
+──────────────────────────────────────────────────────────────────────────────
+
+  // 올바른 패턴: try/catch를 반드시 감쌀 것
+  private async void BtnSomething_Click(object sender, RoutedEventArgs e)
+  {
+      try
+      {
+          // async 작업
+          await SomeAsyncMethod();
+      }
+      catch (Exception ex)
+      {
+          // async void에서 예외를 catch하지 않으면 앱이 크래시됩니다
+          Log($"오류: {ex.Message}");
+      }
+  }
+
+[ CancellationToken 패턴 ]
+──────────────────────────────────────────────────────────────────────────────
+
+  // 필드
+  private CancellationTokenSource? _cts;
+
+  // 시작 시
+  _cts = new CancellationTokenSource();
+  await engine.RunSequenceAsync("...", ct: _cts.Token);
+
+  // 중단 버튼
+  _cts?.Cancel();
+
+  // 타임아웃 추가 (30초 이내 완료 강제)
+  _cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+[ ObservableCollection과 DataGrid ]
+──────────────────────────────────────────────────────────────────────────────
+
+  // MainWindow 생성자 또는 ViewModel에서
+  DataContext = this;   // 또는 ViewModel 인스턴스
+
+  // XAML
+  <DataGrid ItemsSource="{Binding TestResults}" ... />
+
+  // 코드에서 안전하게 추가 (UI 스레드에서)
+  TestResults.Add(result);  // Progress<T> 콜백 안에서 OK
+
+[ INotifyPropertyChanged 활용 ]
+──────────────────────────────────────────────────────────────────────────────
+
+  // ViewModel에서 단일 값 바인딩 예시
+  private double _hvVoltage;
+  public double HvVoltage
+  {
+      get => _hvVoltage;
+      set { _hvVoltage = value; OnPropertyChanged(); }
+  }
+
+  // DataReceived 이벤트에서
+  Dispatcher.Invoke(() => HvVoltage = raw[0] * 0.1);
+
+  // XAML
+  <TextBlock Text="{Binding HvVoltage, StringFormat={}{0:F1} V}" />
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ PART 12. 자주 발생하는 문제와 해결법
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ Q1 ] 빌드 오류: The type 'IModbusClient' could not be found
+  → using MAK_Modbus.Core; 가 없거나 프로젝트 참조가 누락된 경우
+  → PART 2를 다시 확인하고 <ProjectReference>를 추가하세요.
+
+[ Q2 ] sequence.json 파일을 찾을 수 없다는 오류
+  → .csproj에 CopyToOutputDirectory 설정이 없는 경우입니다.
+  → PART 3의 <None Update="config\sequence.json"> 항목을 추가하세요.
+  → 또는 절대 경로로 호출:
+       engine.RunSequenceAsync(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                                            "config", "sequence.json"));
+
+[ Q3 ] 셀 전압 읽기 시 125개만 읽히고 나머지가 안 나온다
+  → ModbusPeriodicService는 청크 분할을 지원하지 않습니다.
+  → BmsModbusClient.ReadRegistersAsync를 사용하면 512개도 자동 분할됩니다.
+       var (ok, raw) = await _bmsClient.ReadRegistersAsync(1, 0x1401, 512);
+
+[ Q4 ] UI가 검사 중에 멈춘다 (응답 없음)
+  → await 없이 동기 방식으로 호출한 경우입니다.
+  → async void 버튼 핸들러 안에서 반드시 await를 사용하세요.
+  → Task.Run으로 감싸는 것은 이미 async인 경우 불필요합니다.
+
+[ Q5 ] 값이 이상하게 나온다 (예: 65535 또는 0)
+  → 주소, 국번(SlaveID), Length가 BMS 사양과 맞는지 확인하세요.
+  → sequence.json의 Address를 hex(0x1401)로 정확히 지정했는지 확인하세요.
+  → Coefficient를 확인하세요 (mV 단위면 1.0, V 단위면 0.001 등).
+
+[ Q6 ] ConnectAsync가 오래 걸리거나 타임아웃 없이 멈춘다
+  → ModbusTcpClient의 timeoutMs를 줄이세요 (기본값 3000ms).
+  → 연결 버튼에 CancellationToken을 전달하면 강제 취소도 가능합니다:
+       using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+       await _modbusClient.ConnectAsync(cts.Token);
+
+[ Q7 ] Dispatcher.Invoke 안에서 await를 사용하면 교착 상태
+  → Dispatcher.Invoke 내부에서는 await를 사용하지 마세요.
+  → UI 업데이트는 동기 코드만 넣고, await는 밖에서 처리하세요.
+
+[ Q8 ] 여러 스텝에서 동시에 ReadRegistersAsync를 호출하면 오류
+  → ModbusTcpClient 내부에 SemaphoreSlim(1,1) 락이 있어 직렬 처리됩니다.
+  → BmsTestEngine은 foreach로 순서대로 실행하므로 동시 호출이 발생하지 않습니다.
+  → 별도 스레드에서 폴링과 검사를 동시에 하면 충돌할 수 있으니 주의하세요.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 빠른 참고: 라이브러리 전체 API 요약
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[IModbusClient] — using MAK_Modbus.Core;
+  ConnectAsync(ct)
+  Disconnect()
+  ReadHoldingRegistersAsync(deviceId, startAddress, count, ct)  → ushort[]
+  ReadInputRegistersAsync(deviceId, startAddress, count, ct)    → ushort[]
+  ReadCoilsAsync(deviceId, startAddress, count, ct)             → bool[]
+  ReadDiscreteInputsAsync(deviceId, startAddress, count, ct)    → bool[]
+  WriteSingleRegisterAsync(deviceId, address, value, ct)
+  WriteSingleCoilAsync(deviceId, address, value, ct)
+  WriteMultipleRegistersAsync(deviceId, startAddress, values, ct)
+  WriteMultipleCoilsAsync(deviceId, startAddress, values, ct)
+  WriteAndReadRegistersAsync(deviceId, wAddr, wVals, rAddr, rCount, ct) → ushort[]
+  CheckConnectionHealth()                                        → bool
+  IsConnected                                                    → bool
+  ConnectionChanged event
+
+[ModbusClientFactory] — using MAK_Modbus.Core;
+  CreateTcp(host, port=502, timeoutMs=3000)        → ModbusTcpClient
+  CreateRtu(portName, baudRate=9600, ...)          → ModbusRtuClient
+  GetAvailableSerialPorts()                        → string[]
+
+[DataConverter] — using MAK_Modbus.Helpers;
+  ToFloat(highWord, lowWord)     → float
+  FromFloat(value)               → ushort[2]
+  ToInt32(highWord, lowWord)     → int
+  ToUInt32(highWord, lowWord)    → uint
+  FromInt32(value)               → ushort[2]
+  ToAsciiString(registers)       → string
+  GetBit(value, bitIndex)        → bool
+  SetBit(value, bitIndex, state) → ushort
+
+[BmsModbusClient] — using MyApp.Bms; (복사된 파일)
+  BmsModbusClient.Create(ip, port, timeoutMs, errorLogger)
+  ConnectAsync(ct)
+  Disconnect()
+  WriteRegisterAsync(slaveId, address, value, ct)           → bool
+  ReadRegistersAsync(slaveId, startAddress, length, ct)     → (bool, ushort[])
+  BmsModbusClient.ToFloat32(highWord, lowWord)              → float  (static)
+  BmsModbusClient.ToUInt32(highWord, lowWord)               → uint   (static)
+
+[BmsTestEngine] — using MyApp.Bms; (복사된 파일)
+  new BmsTestEngine(client, logger)
+  RunSequenceAsync(jsonFilePath, progress, ct)  → List<StepResult>
+
+[ModbusConnectionWatcher] — using MAK_Modbus.Services;
+  new ModbusConnectionWatcher(client, reconnectAction)
+  HeartbeatInterval, RetryInterval, MaxRetryCount
+  Start() / Stop() / Dispose()
+  ConnectionLost event, Reconnected event, ReconnectFailed event
+
+[ModbusPeriodicService] — using MAK_Modbus.Services;
+  new ModbusPeriodicService(client)
+  StartPeriodicRead(PeriodicReadConfig)   → string (TaskId)
+  StartPeriodicWrite(PeriodicWriteConfig) → string (TaskId)
+  StopTask(taskId) / StopAll() / Dispose()
+  DataReceived event, WriteCompleted event, ErrorOccurred event
+
+
+================================================================================
+  END OF GUIDE
+================================================================================

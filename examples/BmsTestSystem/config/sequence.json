@@ -1,0 +1,72 @@
+{
+  "SequenceName": "배터리 팩 기본 검사 시퀀스",
+  "Version": "1.0",
+  "Steps": [
+    {
+      "StepIndex": 1,
+      "StepName": "Relay OFF 제어",
+      "Action": "Write",
+      "SlaveID": 1,
+      "Address": "0x0000",
+      "Length": 1,
+      "WriteValue": 0,
+      "Coefficient": 1.0,
+      "Unit": "",
+      "DelayAfterMs": 200,
+      "Judgment": {
+        "Type": "None"
+      }
+    },
+    {
+      "StepIndex": 2,
+      "StepName": "Relay OFF 피드백 확인",
+      "Action": "Read",
+      "SlaveID": 1,
+      "Address": "0x001F",
+      "Length": 1,
+      "WriteValue": 0,
+      "Coefficient": 1.0,
+      "Unit": "",
+      "DelayAfterMs": 0,
+      "Judgment": {
+        "Type": "Bitmask",
+        "CheckMask": "0x0005",
+        "ExpectedBits": "0x0000"
+      }
+    },
+    {
+      "StepIndex": 3,
+      "StepName": "HV 전압 계측",
+      "Action": "Read",
+      "SlaveID": 1,
+      "Address": "0x0231",
+      "Length": 1,
+      "WriteValue": 0,
+      "Coefficient": 0.1,
+      "Unit": "V",
+      "DelayAfterMs": 0,
+      "Judgment": {
+        "Type": "Range",
+        "LimitMin": 200.0,
+        "LimitMax": 450.0
+      }
+    },
+    {
+      "StepIndex": 4,
+      "StepName": "Cell Voltage 전체 계측 (512셀)",
+      "Action": "Read",
+      "SlaveID": 1,
+      "Address": "0x1401",
+      "Length": 512,
+      "WriteValue": 0,
+      "Coefficient": 1.0,
+      "Unit": "mV",
+      "DelayAfterMs": 0,
+      "Judgment": {
+        "Type": "Range",
+        "LimitMin": 2500.0,
+        "LimitMax": 4200.0
+      }
+    }
+  ]
+}
