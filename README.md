@@ -8,8 +8,9 @@ C# WPF 프로젝트에서 바로 사용할 수 있는 **Modbus TCP / RTU** 통�
 - 주기적 Read / Write (사용자 지정 인터벌)
 - Write 후 바로 Read 기능
 - 이벤트 기반 실시간 데이터 수신
-- **JSON 기반 동적 검사 엔진** (BmsTestEngine) — 주소·판정 기준을 코드 없이 JSON으로 정의
+- **JSON 기반 명령 실행 엔진** (BmsTestEngine) — Read/Write 명령을 JSON으로 정의, 코드 수정 없이 전송
 - **셀 전압 통계 계산** (BmsCellCalculator) — Min/Max/StdDev/이탈 셀 탐색/SoC 추정
+- **Modbus 시뮬레이터** (SimulatorWpfApp) — 슬레이브 서버 + JSON 명령 클라이언트 전송 기능
 
 ---
 
@@ -37,53 +38,70 @@ MAK_Modbus/
 │           └── DataConverter.cs           ← Float/Int32/비트 변환 유틸
 ├── examples/
 │   ├── WpfExample/                        ← WPF 기본 예제 프로그램
-│   └── BmsTestSystem/                     ← BMS 검사 엔진 예제
+│   ├── SimulatorWpfApp/                   ← Modbus 시뮬레이터 (슬레이브 + 클라이언트 전송)
+│   │   ├── ModbusCommandModels.cs         ← JSON 파싱 모델
+│   │   ├── MainWindow.xaml / .cs          ← 서버 제어 + JSON 명령 전송 UI
+│   │   └── SimulatorWpfApp.csproj
+│   └── BmsTestSystem/                     ← BMS 명령 실행 엔진 예제
 │       ├── Models/
-│       │   ├── TestSequence.cs            ← TestStep, JudgmentCriteria 모델
-│       │   └── TestResult.cs              ← StepResult, StepJudgment 모델
+│       │   ├── TestSequence.cs            ← ModbusCommandSet, ModbusCommand 모델
+│       │   └── TestResult.cs              ← CommandResult 모델
 │       ├── BmsModbusClient.cs             ← IModbusClient 래퍼 (청크 분할)
-│       ├── BmsTestEngine.cs               ← JSON 시퀀스 실행 엔진
+│       ├── BmsTestEngine.cs               ← JSON 명령 실행 엔진
 │       ├── BmsCellCalculator.cs           ← 셀 전압 통계/분석 유틸
-│       └── config/sequence.json           ← 검사 시퀀스 정의 파일
+│       └── config/sequence.json           ← 명령 정의 파일
 ├── WPF_통합_가이드.txt                     ← WPF 연동 상세 가이드 (12개 파트)
 └── MAK_Modbus.sln
 ```
 
 ---
 
-## BMS 검사 엔진 (BmsTestSystem)
+## BMS 명령 실행 엔진 (BmsTestSystem)
 
-검사 주소·판정 기준을 코드에 하드코딩하지 않고 **JSON 파일로 정의**하여 동적으로 실행하는 검사 엔진입니다.
+Read/Write 명령을 **JSON 파일로 정의**하고 그대로 전송하는 엔진입니다.  
+판정 로직 없이 명령을 순서대로 보내고 Raw 결과를 수집합니다.
 
-### sequence.json 예시
+### sequence.json 포맷
 
 ```json
 {
-  "SequenceName": "배터리 팩 기본 검사 시퀀스",
-  "Steps": [
-    { "StepIndex": 1, "StepName": "Relay OFF 제어",
-      "Action": "Write", "SlaveID": 1, "Address": "0x0000",
-      "WriteValue": 0, "DelayAfterMs": 200,
-      "Judgment": { "Type": "None" } },
-
-    { "StepIndex": 2, "StepName": "Relay OFF 피드백 확인",
-      "Action": "Read", "SlaveID": 1, "Address": "0x001F", "Length": 1,
-      "Judgment": { "Type": "Bitmask", "CheckMask": "0x0005", "ExpectedBits": "0x0000" } },
-
-    { "StepIndex": 3, "StepName": "HV 전압 계측",
-      "Action": "Read", "SlaveID": 1, "Address": "0x0231", "Length": 1,
-      "Coefficient": 0.1, "Unit": "V",
-      "Judgment": { "Type": "Range", "LimitMin": 200.0, "LimitMax": 450.0 } },
-
-    { "StepIndex": 4, "StepName": "Cell Voltage 전체 계측 (512셀)",
-      "Action": "Read", "SlaveID": 1, "Address": "0x1401", "Length": 512,
-      "Unit": "mV",
-      "Judgment": { "Type": "Range", "LimitMin": 2500.0, "LimitMax": 4200.0 } }
+  "Name": "BMS 명령 세트",
+  "Commands": [
+    {
+      "Name": "Relay OFF",
+      "Action": "Write",
+      "SlaveID": 1,
+      "Address": "0x0000",
+      "Value": 0,
+      "DelayAfterMs": 200
+    },
+    {
+      "Name": "Relay 상태 확인",
+      "Action": "Read",
+      "SlaveID": 1,
+      "Address": "0x001F",
+      "Length": 1
+    },
+    {
+      "Name": "Cell Voltage 계측 (512셀)",
+      "Action": "Read",
+      "SlaveID": 1,
+      "Address": "0x1401",
+      "Length": 512
+    }
   ]
 }
 ```
 
-### WPF에서 검사 실행
+| 필드 | 설명 |
+|------|------|
+| `Action` | `"Read"` 또는 `"Write"` |
+| `Address` | Hex(`"0x001F"`) 또는 Decimal(`"31"`) 문자열 |
+| `Length` | 읽을 레지스터 수 (Read 전용, 125 초과 시 자동 청크 분할) |
+| `Value` | 쓸 값 (Write 전용, 0~65535) |
+| `DelayAfterMs` | 명령 완료 후 대기 시간(ms), 생략 가능 |
+
+### WPF에서 실행
 
 ```csharp
 // BmsModbusClient: IModbusClient 래퍼 (청크 분할 읽기 내장)
@@ -91,25 +109,18 @@ await using var client = BmsModbusClient.Create("192.168.1.100", 502,
     errorLogger: msg => Dispatcher.Invoke(() => Log(msg)));
 await client.ConnectAsync();
 
-// IProgress<StepResult>: 스텝 완료 시마다 UI 스레드에서 자동 호출
-var progress = new Progress<StepResult>(result =>
+// IProgress<CommandResult>: 명령 완료 시마다 UI 스레드에서 자동 호출
+var progress = new Progress<CommandResult>(result =>
 {
-    TestResults.Add(result);       // DataGrid 실시간 갱신
+    Results.Add(result);       // DataGrid 실시간 갱신
 });
 
 var engine  = new BmsTestEngine(client, logger: msg => Log(msg));
-var results = await engine.RunSequenceAsync("config/sequence.json", progress);
+var results = await engine.RunCommandsAsync("config/sequence.json", progress);
 
-bool allPass = results.All(r => r.IsPass);
+// CommandResult: Name, Action, Success, RawData(ushort[]?), Message
+bool allOk = results.All(r => r.Success);
 ```
-
-### 판정 타입 요약
-
-| Type | 조건 | 용도 |
-|---|---|---|
-| `None` | 항상 Pass | 계측 전용, Write 후 확인 불필요 시 |
-| `Range` | `LimitMin <= 값 <= LimitMax` | 전압, 전류, 온도 범위 검사 |
-| `Bitmask` | `(reg & CheckMask) == ExpectedBits` | 릴레이 상태, 비트 플래그 확인 |
 
 ### 셀 전압 통계 계산 (BmsCellCalculator)
 
@@ -126,6 +137,25 @@ var outliers = BmsCellCalculator.FindOutliers(voltages, threshold: 50.0);
 ```
 
 > **WPF 전체 통합 방법**은 저장소 루트의 `WPF_통합_가이드.txt`를 참고하세요. (12개 파트, 연결부터 트러블슈팅까지)
+
+---
+
+## Modbus 시뮬레이터 (SimulatorWpfApp)
+
+슬레이브 서버와 클라이언트 전송 기능을 하나의 앱에서 사용할 수 있는 WPF 시뮬레이터입니다.
+
+| 기능 | 설명 |
+|------|------|
+| **슬레이브 서버** | Modbus TCP 서버로 동작. 레지스터/코일 수동 설정, 자동 카운터 |
+| **JSON 명령 전송** | `sequence.json`을 로드하여 다른 Modbus 서버에 명령을 순서대로 전송 |
+| **명령 결과 탭** | 각 명령의 OK/FAIL 상태와 수신 Raw 값을 DataGrid로 표시 |
+
+### 사용 방법
+
+1. **슬레이브 모드** — 포트 입력 후 `▶ 시작` 클릭 → Holding Register/Coil 값 수동 설정
+2. **클라이언트 전송** — `대상 IP`, `포트` 입력 → `열기...`로 JSON 파일 선택 → `▶ 전송`
+3. 전송 중 `■ 중단` 으로 즉시 취소 가능
+4. 결과는 **명령 결과 (클라이언트)** 탭에서 확인
 
 ---
 
