@@ -10,5 +10,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\simulator\MAK_Modbus.Simulator\MAK_Modbus.Simulator.csproj" />
+    <ProjectReference Include="..\..\src\MAK_Modbus\MAK_Modbus.csproj" />
   </ItemGroup>
 </Project>

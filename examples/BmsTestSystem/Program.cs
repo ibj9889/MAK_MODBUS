@@ -7,9 +7,9 @@ await using var client = BmsModbusClient.Create("192.168.1.100", 502, 3000);
 await client.ConnectAsync();
 
 var engine  = new BmsTestEngine(client);
-var results = await engine.RunSequenceAsync("config/sequence.json");
+var results = await engine.RunCommandsAsync("config/sequence.json");
 
-Environment.Exit(results.All(r => r.IsPass) ? 0 : 1);
+Environment.Exit(results.All(r => r.Success) ? 0 : 1);
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -27,63 +27,54 @@ public partial class MainWindow : Window
     private BmsModbusClient? _client;
     private CancellationTokenSource? _cts;
 
-    // DataGrid에 바인딩할 결과 컬렉션
-    public ObservableCollection<StepResult> TestResults { get; } = new();
-
-    // ── 연결 ──────────────────────────────────────────────────────────────────
+    public ObservableCollection<CommandResult> Results { get; } = new();
 
     private async void BtnConnect_Click(object sender, RoutedEventArgs e)
     {
-        // 로거: WPF TextBox에 직접 append (UI 스레드에서 호출되므로 Dispatcher 불필요)
         void AppendLog(string msg) => TxtLog.AppendText(msg + "\n");
 
         _client = BmsModbusClient.Create(
             ip:          TxtIp.Text,
             port:        502,
             timeoutMs:   3000,
-            errorLogger: msg => Dispatcher.Invoke(() => AppendLog(msg)));  // ← 오류는 백그라운드에서 발생 가능 → Dispatcher 필요
+            errorLogger: msg => Dispatcher.Invoke(() => AppendLog(msg)));
 
         await _client.ConnectAsync();
         AppendLog("BMS 연결 성공");
     }
 
-    // ── 검사 시작 ─────────────────────────────────────────────────────────────
-
     private async void BtnStartTest_Click(object sender, RoutedEventArgs e)
     {
         if (_client == null) return;
 
-        TestResults.Clear();
+        Results.Clear();
         BtnStartTest.IsEnabled = false;
         _cts = new CancellationTokenSource();
 
-        // 로거: async void 이벤트 핸들러는 UI 스레드에서 실행되므로 Dispatcher 불필요
         void AppendLog(string msg) => TxtLog.AppendText(msg + "\n");
 
-        // IProgress<T>: Report()는 캡처된 SynchronizationContext(UI 스레드)에서 실행됨
-        // → DataGrid가 스텝 완료 즉시 갱신됨
-        var progress = new Progress<StepResult>(result =>
+        var progress = new Progress<CommandResult>(result =>
         {
-            TestResults.Add(result);                     // UI 스레드에서 안전하게 추가
-            DgResults.ScrollIntoView(result);            // 최신 결과로 자동 스크롤
+            Results.Add(result);
+            DgResults.ScrollIntoView(result);
         });
 
         var engine = new BmsTestEngine(_client, logger: AppendLog);
 
         try
         {
-            var results = await engine.RunSequenceAsync(
+            var results = await engine.RunCommandsAsync(
                 jsonFilePath: "config/sequence.json",
                 progress:     progress,
                 ct:           _cts.Token);
 
-            bool allPass = results.All(r => r.IsPass);
-            LblOverall.Content    = allPass ? "PASS" : "FAIL";
-            LblOverall.Foreground = allPass ? Brushes.Green : Brushes.Red;
+            bool allOk = results.All(r => r.Success);
+            LblOverall.Content    = allOk ? "OK" : "FAIL";
+            LblOverall.Foreground = allOk ? Brushes.Green : Brushes.Red;
         }
         catch (OperationCanceledException)
         {
-            AppendLog("[Engine] 검사가 사용자에 의해 중단되었습니다.");
+            AppendLog("[Engine] 실행이 사용자에 의해 중단되었습니다.");
         }
         finally
         {
@@ -91,12 +82,8 @@ public partial class MainWindow : Window
         }
     }
 
-    // ── 검사 중단 ─────────────────────────────────────────────────────────────
-
-    private void BtnStopTest_Click(object sender, RoutedEventArgs e)
+    private void BtnStop_Click(object sender, RoutedEventArgs e)
         => _cts?.Cancel();
-
-    // ── 연결 해제 ─────────────────────────────────────────────────────────────
 
     private async void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
     {

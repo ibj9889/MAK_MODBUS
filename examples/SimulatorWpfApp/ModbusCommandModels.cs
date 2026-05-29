@@ -1,4 +1,4 @@
-namespace BmsTestSystem.Models;
+namespace SimulatorWpfApp;
 
 public sealed class ModbusCommandSet
 {
@@ -9,21 +9,18 @@ public sealed class ModbusCommandSet
 public sealed class ModbusCommand
 {
     public string Name { get; set; } = string.Empty;
-
-    /// <summary>"Read" or "Write"</summary>
     public string Action { get; set; } = "Read";
-
     public byte SlaveID { get; set; } = 1;
-
-    /// <summary>Hex or Decimal string. e.g. "0x001F" or "31"</summary>
     public string Address { get; set; } = "0x0000";
-
-    /// <summary>Number of registers to read (Read only)</summary>
     public int Length { get; set; } = 1;
-
-    /// <summary>Value to write (Write only)</summary>
     public ushort Value { get; set; } = 0;
-
-    /// <summary>Delay after command in ms</summary>
     public int DelayAfterMs { get; set; } = 0;
+}
+
+public class CommandResultRow
+{
+    public string Name    { get; set; } = "";
+    public string Action  { get; set; } = "";
+    public string Status  { get; set; } = "";
+    public string Message { get; set; } = "";
 }

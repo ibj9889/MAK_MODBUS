@@ -1,18 +1,14 @@
 namespace BmsTestSystem.Models;
 
-public enum StepJudgment { Pass, Fail, Skip, Error }
-
-public sealed class StepResult
+public sealed class CommandResult
 {
-    public int StepIndex { get; set; }
-    public string StepName { get; set; } = string.Empty;
-    public StepJudgment Judgment { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Action { get; set; } = string.Empty;
+    public bool Success { get; set; }
     public string Message { get; set; } = string.Empty;
 
-    /// <summary>Coefficient 적용 후 실측값 배열 (Read 스텝에서만 채워짐)</summary>
-    public double[]? MeasuredValues { get; set; }
+    /// <summary>Raw register values from Read command. Null for Write commands.</summary>
+    public ushort[]? RawData { get; set; }
 
     public DateTime Timestamp { get; } = DateTime.Now;
-
-    public bool IsPass => Judgment == StepJudgment.Pass;
 }
